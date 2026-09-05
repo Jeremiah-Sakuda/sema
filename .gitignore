@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / React
+node_modules/
+dist/
+build/
+.next/
+.vite/
+coverage/
+.npm/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+service-account*.json
+
+# Media and generated artifacts
+*.mp4
+*.mov
+*.wav
+*.webvtt
+*.vtt
+*.srt
+media/
+artifacts/
+exports/
+
+# Local tooling
+.DS_Store
+.vscode/
+.idea/
+*.log
