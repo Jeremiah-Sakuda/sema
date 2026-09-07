@@ -1,0 +1,812 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Sema audio-description review API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: projects
+    description: Audio-description projects and review state
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: Storage
+    description: Object storage upload and serving endpoints.
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationSessionHeader"
+        - $ref: "#/components/parameters/SessionCookie"
+      responses:
+        "200":
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to the return path after login.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationSessionHeader"
+        - $ref: "#/components/parameters/SessionCookie"
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+            default: /
+      responses:
+        "302":
+          description: Redirect to the OIDC logout endpoint.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileTokenExchangeRequest"
+      responses:
+        "200":
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTokenExchangeSuccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationSessionHeader"
+      responses:
+        "200":
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutSuccess"
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadUrlRequest"
+      responses:
+        "200":
+          description: Presigned upload URL generated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadUrlResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /storage/public-objects/{filePath}:
+    get:
+      tags: [Storage]
+      operationId: getPublicObject
+      summary: Serve a public asset from object storage
+      parameters:
+        - name: filePath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object content streamed with its content type.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve a protected object entity
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Object content streamed with its content type.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List audio-description projects
+      responses:
+        "200":
+          description: Project summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectSummary"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create an audio-description project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{projectId}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/review:
+    get:
+      operationId: getProjectReview
+      tags: [projects]
+      summary: Get review workspace data
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Review workspace payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewWorkspace"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/media:
+    post:
+      operationId: attachProjectMedia
+      tags: [projects]
+      summary: Attach an uploaded source video to a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectMediaInput"
+      responses:
+        "200":
+          description: Updated project with source media attached.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/beats/{beatId}/decision:
+    patch:
+      operationId: updateBeatDecision
+      tags: [projects]
+      summary: Record a human review decision
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/BeatId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionInput"
+      responses:
+        "200":
+          description: Updated review decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewDecision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/process/retry:
+    post:
+      operationId: retryProjectProcessing
+      tags: [projects]
+      summary: Retry a failed processing stage
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryInput"
+      responses:
+        "202":
+          description: Retry accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessStatus"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/export:
+    post:
+      operationId: exportProject
+      tags: [projects]
+      summary: Export human-authorized descriptions
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Export bundle metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportBundle"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /projects/{projectId}/export/{fileName}:
+    get:
+      operationId: downloadProjectExport
+      tags: [projects]
+      summary: Download an authorized export artifact
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - name: fileName
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [sema-ad.webvtt, sema-ad.txt, sema-decision-ledger.json, sema-production-summary.txt, sema-narration.wav]
+      responses:
+        "200":
+          description: Downloadable export artifact.
+          content:
+            "*/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "501":
+          description: Live TTS rendering is not available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  parameters:
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+    BeatId:
+      name: beatId
+      in: path
+      required: true
+      schema:
+        type: string
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Export is not yet authorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication is required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Authenticated user cannot access this object
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServerError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, "null"]
+        firstName:
+          type: [string, "null"]
+        lastName:
+          type: [string, "null"]
+        profileImageUrl:
+          type: [string, "null"]
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/AuthUser"
+            - type: "null"
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    UploadUrlRequest:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        size:
+          type: number
+          minimum: 1
+        contentType:
+          type: string
+          minLength: 1
+    UploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+        objectPath:
+          type: string
+        metadata:
+          $ref: "#/components/schemas/UploadUrlRequest"
+    ProjectInput:
+      type: object
+      required: [title, describerName]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        describerName:
+          type: string
+          minLength: 1
+    ProjectMediaInput:
+      type: object
+      required: [objectPath, name, size, contentType]
+      properties:
+        objectPath:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        size:
+          type: number
+          minimum: 1
+        contentType:
+          type: string
+          minLength: 1
+        duration:
+          type: number
+          minimum: 0
+    Project:
+      type: object
+      required: [projectId, title, describerName, mediaObjectPath, mediaFileName, mediaContentType, duration, status, progress, createdAt, updatedAt]
+      properties:
+        projectId:
+          type: string
+        title:
+          type: string
+        describerName:
+          type: string
+        mediaObjectPath:
+          type: [string, "null"]
+        mediaFileName:
+          type: [string, "null"]
+        mediaContentType:
+          type: [string, "null"]
+        duration:
+          type: number
+        status:
+          type: string
+          enum: [ready, processing, needs_review, exported, failed]
+        progress:
+          type: number
+          minimum: 0
+          maximum: 100
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+    ProjectSummary:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          required: [beatCount, resolvedCount, approvedCount]
+          properties:
+            beatCount:
+              type: number
+            resolvedCount:
+              type: number
+            approvedCount:
+              type: number
+    VisualBeat:
+      type: object
+      required: [beatId, start, end, summary, importance, reason, characters, objects, evidenceFrames, state]
+      properties:
+        beatId:
+          type: string
+        start:
+          type: number
+        end:
+          type: number
+        summary:
+          type: string
+        importance:
+          type: string
+          enum: [high, medium, low]
+        reason:
+          type: string
+        characters:
+          type: array
+          items:
+            type: string
+        objects:
+          type: array
+          items:
+            type: string
+        evidenceFrames:
+          type: array
+          items:
+            type: string
+        state:
+          type: string
+          enum: [draft, needs_human, approved, human_edited, rejected, left_undescribed, no_safe_placement]
+    NarrationWindow:
+      type: object
+      required: [windowId, start, end, duration, protectedCollision, silenceRatio]
+      properties:
+        windowId:
+          type: string
+        start:
+          type: number
+        end:
+          type: number
+        duration:
+          type: number
+        protectedCollision:
+          type: boolean
+        silenceRatio:
+          type: number
+    DescriptionCandidate:
+      type: object
+      required: [candidateId, beatId, windowId, text, ttsDuration, availableDuration, fitStatus, languageFlags, attempt, rationale]
+      properties:
+        candidateId:
+          type: string
+        beatId:
+          type: string
+        windowId:
+          type: string
+        text:
+          type: string
+        ttsDuration:
+          type: number
+        availableDuration:
+          type: number
+        fitStatus:
+          type: string
+          enum: [pass, failed, pending]
+        languageFlags:
+          type: array
+          items:
+            type: string
+        attempt:
+          type: number
+        rationale:
+          type: string
+    ReviewDecision:
+      type: object
+      required: [beatId, candidateId, action, finalText, reviewer, exportAuthorized, updatedAt]
+      properties:
+        beatId:
+          type: string
+        candidateId:
+          type: string
+        action:
+          type: string
+          enum: [approve, human_edited_approve, reject, left_undescribed, no_safe_placement]
+        finalText:
+          type: string
+        reviewer:
+          type: string
+        exportAuthorized:
+          type: boolean
+        updatedAt:
+          type: string
+    DecisionInput:
+      type: object
+      required: [action, reviewer]
+      properties:
+        action:
+          type: string
+          enum: [approve, human_edited_approve, reject, left_undescribed, no_safe_placement]
+        reviewer:
+          type: string
+          minLength: 1
+        finalText:
+          type: string
+        candidateId:
+          type: string
+    ReviewWorkspace:
+      type: object
+      required: [project, beats, windows, candidates, decisions, process]
+      properties:
+        project:
+          $ref: "#/components/schemas/Project"
+        beats:
+          type: array
+          items:
+            $ref: "#/components/schemas/VisualBeat"
+        windows:
+          type: array
+          items:
+            $ref: "#/components/schemas/NarrationWindow"
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/DescriptionCandidate"
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReviewDecision"
+        process:
+          $ref: "#/components/schemas/ProcessStatus"
+    ProcessStage:
+      type: object
+      required: [name, label, status]
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        status:
+          type: string
+          enum: [complete, active, pending, failed]
+    ProcessStatus:
+      type: object
+      required: [status, currentStage, stages]
+      properties:
+        status:
+          type: string
+          enum: [complete, active, failed]
+        currentStage:
+          type: string
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessStage"
+    RetryInput:
+      type: object
+      properties:
+        stage:
+          type: string
+    ExportBundle:
+      type: object
+      required: [projectId, status, files, approvedCount, generatedAt]
+      properties:
+        projectId:
+          type: string
+        status:
+          type: string
+          enum: [ready]
+        files:
+          type: array
+          items:
+            type: object
+            required: [name, type, size]
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+              size:
+                type: string
+        approvedCount:
+          type: number
+        generatedAt:
+          type: string
+

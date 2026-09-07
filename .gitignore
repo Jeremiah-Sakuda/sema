@@ -1,44 +1,49 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+# See https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files for more about ignoring files.
 
-# Node / React
-node_modules/
-dist/
-build/
-.next/
-.vite/
-coverage/
-.npm/
+# compiled output
+dist
+tmp
+out-tsc
+*.tsbuildinfo
+.expo
+.expo-shared
 
-# Local environment and secrets
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.p12
-service-account*.json
+# dependencies
+node_modules
 
-# Media and generated artifacts
-*.mp4
-*.mov
-*.wav
-*.webvtt
-*.vtt
-*.srt
-media/
-artifacts/
-exports/
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
 
-# Local tooling
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# misc
+/.sass-cache
+/connect.lock
+/coverage
+/libpeerconnection.log
+npm-debug.log
+yarn-error.log
+testem.log
+/typings
+
+# System Files
 .DS_Store
-.vscode/
-.idea/
-*.log
+Thumbs.db
+
+.cursor/rules/nx-rules.mdc
+.github/instructions/nx.instructions.md
+
+# Replit
+.cache/
+.local/
