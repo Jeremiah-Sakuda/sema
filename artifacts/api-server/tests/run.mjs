@@ -8,7 +8,14 @@ import { spawnSync } from "node:child_process";
 // bundler, credentials, or running server is needed for this safety suite.
 const directory = await mkdtemp(join(tmpdir(), "sema-tests-"));
 try {
-  const modules = ["google-cloud", "wave", "timing", "media", "processing"];
+  const modules = [
+    "google-cloud",
+    "wave",
+    "timing",
+    "media",
+    "source-video",
+    "processing",
+  ];
   for (const name of [...modules, "routes", "fixtures", "safety.test"]) {
     const source = await readFile(new URL(name === "routes" ? "../src/routes/sema.ts" : ["safety.test", "fixtures"].includes(name) ? `./${name}.ts` : `../src/lib/${name}.ts`, import.meta.url), "utf8");
     let output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;

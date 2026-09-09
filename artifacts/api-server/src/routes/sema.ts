@@ -54,6 +54,10 @@ import {
   withProjectLock,
   ExportValidationError,
 } from "../lib/processing";
+import {
+  MAX_SOURCE_VIDEO_LABEL,
+  normalizeSourceVideoContentType,
+} from "../lib/source-video";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -308,7 +312,10 @@ router.post(
     }
     if (
       !body.data.objectPath.startsWith("/objects/") ||
-      !body.data.contentType.startsWith("video/")
+      !normalizeSourceVideoContentType(
+        body.data.name,
+        body.data.contentType,
+      )
     ) {
       res
         .status(400)
@@ -367,11 +374,21 @@ router.post(
         body.data.objectPath,
         req.user.id,
       );
-    } catch {
+    } catch (error) {
+      req.log.warn(
+        {
+          err: error,
+          projectId: project.projectId,
+          fileName: body.data.name,
+          size: body.data.size,
+          contentType: body.data.contentType,
+        },
+        "Unable to snapshot uploaded source video",
+      );
       res
         .status(400)
         .json({
-          error: "The uploaded video is missing, empty, or larger than 250 MB.",
+          error: `The uploaded video is missing, empty, or larger than ${MAX_SOURCE_VIDEO_LABEL}.`,
         });
       return;
     }

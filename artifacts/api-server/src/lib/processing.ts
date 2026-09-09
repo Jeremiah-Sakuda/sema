@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import {
   db,
   pool,
@@ -37,6 +37,10 @@ import { parseWave, narrationStem } from "./wave";
 import { ObjectStorageService } from "./objectStorage";
 import { pipelineStages, getProjectById } from "./sema-demo";
 import { logger } from "./logger";
+import {
+  MAX_SOURCE_VIDEO_BYTES,
+  MAX_SOURCE_VIDEO_LABEL,
+} from "./source-video";
 
 const storage = new ObjectStorageService();
 export const audioHash = (audio: Buffer) =>
@@ -140,9 +144,8 @@ async function processProject(projectId: string) {
       project.mediaObjectPath,
     );
     const [metadata] = await sourceFile.getMetadata();
-    const maxBytes = 250 * 1024 * 1024;
-    if (Number(metadata.size) > maxBytes)
-      throw new Error("Source video exceeds 250 MB.");
+    if (Number(metadata.size) > MAX_SOURCE_VIDEO_BYTES)
+      throw new Error(`Source video exceeds ${MAX_SOURCE_VIDEO_LABEL}.`);
     let downloaded = 0;
     await pipeline(
       sourceFile.createReadStream(),
@@ -150,8 +153,8 @@ async function processProject(projectId: string) {
         transform(chunk, _encoding, callback) {
           downloaded += chunk.length;
           callback(
-            downloaded > maxBytes
-              ? new Error("Source video exceeds 250 MB.")
+            downloaded > MAX_SOURCE_VIDEO_BYTES
+              ? new Error(`Source video exceeds ${MAX_SOURCE_VIDEO_LABEL}.`)
               : null,
             chunk,
           );
@@ -467,19 +470,25 @@ export function startProcessingWorker() {
             isNotNull(semaProjectsTable.mediaObjectPath),
           ),
         )
-        .limit(10);
-      for (const project of projects) {
-        try {
-          await withProjectLock(project.projectId, () =>
-            processProject(project.projectId),
-          );
-        } catch {
-          logger.warn(
-            { projectId: project.projectId },
-            "Processing deferred; project lock or database unavailable.",
-          );
-        }
-      }
+        .orderBy(
+          asc(semaProjectsTable.progress),
+          asc(semaProjectsTable.updatedAt),
+        )
+        .limit(2);
+      await Promise.all(
+        projects.map(async (project) => {
+          try {
+            await withProjectLock(project.projectId, () =>
+              processProject(project.projectId),
+            );
+          } catch {
+            logger.warn(
+              { projectId: project.projectId },
+              "Processing deferred; project lock or database unavailable.",
+            );
+          }
+        }),
+      );
     } catch {
       logger.error(
         "Processing queue unavailable. Check database schema and connectivity.",

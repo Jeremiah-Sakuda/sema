@@ -5,6 +5,10 @@ import { encodeWave, parseWave, narrationStem } from "../src/lib/wave";
 import { hasProtectedCollision, narrationWindows, verifyRenderedFit } from "../src/lib/timing";
 import { audibleIntervals } from "../src/lib/media";
 import { verifiedExport, audioHash } from "../src/lib/processing";
+import {
+  MAX_SOURCE_VIDEO_BYTES,
+  normalizeSourceVideoContentType,
+} from "../src/lib/source-video";
 import { state, routes, sdk } from "./fixtures";
 import "./routes.mjs";
 
@@ -133,6 +137,25 @@ test("fit validation fails closed for collision, invalid measurement and overlon
   assert.deepEqual(narrationWindows([{ start: 1, end: 2 }, { start: 1.8, end: 3 }], 5), [{ start: 0, end: 0.75 }, { start: 3.25, end: 5 }]);
   const pcm = Buffer.alloc(3200); pcm.writeInt16LE(1000, 1800);
   assert.deepEqual(audibleIntervals(pcm), [{ start: 0.05, end: 0.1 }]);
+});
+
+test("source uploads accept MOV MIME fallbacks and enforce a 1 GB ceiling", () => {
+  assert.equal(MAX_SOURCE_VIDEO_BYTES, 1024 * 1024 * 1024);
+  assert.equal(
+    normalizeSourceVideoContentType("camera-original.MOV", "video/quicktime"),
+    "video/quicktime",
+  );
+  assert.equal(
+    normalizeSourceVideoContentType(
+      "camera-original.MOV",
+      "application/octet-stream",
+    ),
+    "video/quicktime",
+  );
+  assert.equal(
+    normalizeSourceVideoContentType("notes.txt", "application/octet-stream"),
+    null,
+  );
 });
 
 test("Google calls use Vertex, require timestamps and measure returned synthesis", async () => {

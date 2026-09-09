@@ -11,6 +11,11 @@ import {
   ObjectNotFoundError,
   ObjectStorageService,
 } from "../lib/objectStorage";
+import {
+  MAX_SOURCE_VIDEO_BYTES,
+  MAX_SOURCE_VIDEO_LABEL,
+  normalizeSourceVideoContentType,
+} from "../lib/source-video";
 
 const router: IRouter = Router();
 const objectStorageService = new ObjectStorageService();
@@ -41,12 +46,24 @@ router.post(
 
     try {
       const { name, size, contentType } = parsed.data;
-      if (
-        !contentType.startsWith("video/") ||
-        size <= 0 ||
-        size > 250 * 1024 * 1024
-      ) {
-        res.status(400).json({ error: "Upload a video up to 250 MB." });
+      const videoContentType = normalizeSourceVideoContentType(
+        name,
+        contentType,
+      );
+      if (!videoContentType) {
+        res.status(400).json({
+          error: "Choose a video file. MOV, MP4, M4V, and WebM are supported.",
+        });
+        return;
+      }
+      if (size <= 0) {
+        res.status(400).json({ error: "The selected video is empty." });
+        return;
+      }
+      if (size > MAX_SOURCE_VIDEO_BYTES) {
+        res.status(400).json({
+          error: `This video is ${(size / 1024 / 1024).toFixed(1)} MB. Sema accepts source videos up to ${MAX_SOURCE_VIDEO_LABEL}.`,
+        });
         return;
       }
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
@@ -59,7 +76,7 @@ router.post(
         RequestUploadUrlResponse.parse({
           uploadURL,
           objectPath,
-          metadata: { name, size, contentType },
+          metadata: { name, size, contentType: videoContentType },
         }),
       );
     } catch (error) {

@@ -9,6 +9,10 @@ import {
   ObjectPermission,
   setObjectAclPolicy,
 } from "./objectAcl";
+import {
+  MAX_SOURCE_VIDEO_BYTES,
+  MAX_SOURCE_VIDEO_LABEL,
+} from "./source-video";
 
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
@@ -61,8 +65,13 @@ export class ObjectStorageService {
   async snapshotUpload(objectPath: string, owner: string): Promise<string> {
     const source = await this.getObjectEntityFile(objectPath);
     const [metadata] = await source.getMetadata();
-    if (!Number(metadata.size) || Number(metadata.size) > 250 * 1024 * 1024)
-      throw new Error("Upload must be between 1 byte and 250 MB.");
+    if (
+      !Number(metadata.size) ||
+      Number(metadata.size) > MAX_SOURCE_VIDEO_BYTES
+    )
+      throw new Error(
+        `Upload must be between 1 byte and ${MAX_SOURCE_VIDEO_LABEL}.`,
+      );
     const destinationPath = `/objects/sources/${randomUUID()}`;
     const { bucketName, objectName } = parseObjectPath(
       `${this.getPrivateObjectDir()}/${destinationPath.slice("/objects/".length)}`,

@@ -316,8 +316,26 @@ function MediaAssetCard({
   const [uploading, setUploading] = useState(false);
 
   const upload = async (file: File) => {
-    if (!file.type.startsWith("video/")) {
-      setStatus("Choose a video file to attach as source media.");
+    const isMov = /\.(mov|qt)$/i.test(file.name);
+    const contentType = file.type.startsWith("video/")
+      ? file.type
+      : isMov
+        ? "video/quicktime"
+        : "";
+    if (!contentType) {
+      setStatus(
+        "Choose a video file. MOV, MP4, M4V, and WebM are supported.",
+      );
+      return;
+    }
+    if (file.size <= 0) {
+      setStatus("The selected video is empty.");
+      return;
+    }
+    if (file.size > 1024 * 1024 * 1024) {
+      setStatus(
+        `This video is ${(file.size / 1024 / 1024).toFixed(1)} MB. Sema accepts source videos up to 1 GB. Compress or trim it, then try again.`,
+      );
       return;
     }
     setUploading(true);
@@ -338,21 +356,25 @@ function MediaAssetCard({
         video.src = url;
       });
       const uploadTarget = await requestUpload.mutateAsync({
-        data: { name: file.name, size: file.size, contentType: file.type },
+        data: { name: file.name, size: file.size, contentType },
       });
       const response = await fetch(uploadTarget.uploadURL, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
+        headers: { "Content-Type": contentType },
         body: file,
       });
-      if (!response.ok) throw new Error("Upload failed");
+      if (!response.ok) {
+        throw new Error(
+          `Storage rejected the upload (HTTP ${response.status}). Try again.`,
+        );
+      }
       await attachMedia.mutateAsync({
         projectId,
         data: {
           objectPath: uploadTarget.objectPath,
           name: file.name,
           size: file.size,
-          contentType: file.type,
+          contentType,
           duration,
         },
       });
@@ -360,8 +382,23 @@ function MediaAssetCard({
         "Source attached. Analysis is running; results will appear automatically.",
       );
       onAttached();
-    } catch {
-      setStatus("Source upload failed. Check your login and try again.");
+    } catch (error) {
+      const apiMessage =
+        error &&
+        typeof error === "object" &&
+        "data" in error &&
+        error.data &&
+        typeof error.data === "object" &&
+        "error" in error.data &&
+        typeof error.data.error === "string"
+          ? error.data.error
+          : null;
+      setStatus(
+        apiMessage ??
+          (error instanceof Error
+            ? error.message
+            : "Source upload failed. Try again."),
+      );
     } finally {
       setUploading(false);
     }
@@ -415,7 +452,7 @@ function MediaAssetCard({
           <input
             ref={inputRef}
             type="file"
-            accept="video/*"
+            accept="video/*,.mov,.qt"
             className="sr-only"
             onChange={(event) => {
               const file = event.target.files?.[0];
