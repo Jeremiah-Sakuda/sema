@@ -39,6 +39,40 @@ export class ObjectNotFoundError extends Error {
 }
 
 export class ObjectStorageService {
+  async savePrivateArtifact(
+    data: Buffer,
+    contentType: string,
+    owner: string,
+  ): Promise<string> {
+    const objectPath = `/objects/generated/${randomUUID()}`;
+    const { bucketName, objectName } = parseObjectPath(
+      `${this.getPrivateObjectDir()}/${objectPath.slice("/objects/".length)}`,
+    );
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    await file.save(data, {
+      resumable: false,
+      contentType,
+      metadata: { cacheControl: "private, no-store" },
+    });
+    await setObjectAclPolicy(file, { owner, visibility: "private" });
+    return objectPath;
+  }
+
+  async snapshotUpload(objectPath: string, owner: string): Promise<string> {
+    const source = await this.getObjectEntityFile(objectPath);
+    const [metadata] = await source.getMetadata();
+    if (!Number(metadata.size) || Number(metadata.size) > 250 * 1024 * 1024)
+      throw new Error("Upload must be between 1 byte and 250 MB.");
+    const destinationPath = `/objects/sources/${randomUUID()}`;
+    const { bucketName, objectName } = parseObjectPath(
+      `${this.getPrivateObjectDir()}/${destinationPath.slice("/objects/".length)}`,
+    );
+    const destination = objectStorageClient.bucket(bucketName).file(objectName);
+    await source.copy(destination);
+    await setObjectAclPolicy(destination, { owner, visibility: "private" });
+    return destinationPath;
+  }
+
   getPublicObjectSearchPaths(): string[] {
     const paths = Array.from(
       new Set(
@@ -81,18 +115,49 @@ export class ObjectStorageService {
   async downloadObject(
     file: File,
     cacheTtlSec = 3600,
+    range?: string,
   ): Promise<Response> {
     const [metadata] = await file.getMetadata();
     const aclPolicy = await getObjectAclPolicy(file);
-    const nodeStream = file.createReadStream();
+    const size = Number(metadata.size);
+    let start = 0;
+    let end = size - 1;
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if (!match || (!match[1] && !match[2]))
+        return new Response(null, {
+          status: 416,
+          headers: { "Content-Range": `bytes */${size}` },
+        });
+      if (!match[1]) start = Math.max(0, size - Number(match[2]));
+      else {
+        start = Number(match[1]);
+        if (match[2]) end = Math.min(end, Number(match[2]));
+      }
+      if (
+        !Number.isSafeInteger(start) ||
+        !Number.isSafeInteger(end) ||
+        start > end ||
+        start < 0 ||
+        start >= size
+      )
+        return new Response(null, {
+          status: 416,
+          headers: { "Content-Range": `bytes */${size}` },
+        });
+    }
+    const nodeStream = file.createReadStream(range ? { start, end } : {});
     const webStream = Readable.toWeb(nodeStream) as ReadableStream;
     const headers: Record<string, string> = {
       "Content-Type":
         (metadata.contentType as string) || "application/octet-stream",
       "Cache-Control": `${aclPolicy?.visibility === "public" ? "public" : "private"}, max-age=${cacheTtlSec}`,
     };
-    if (metadata.size) headers["Content-Length"] = String(metadata.size);
-    return new Response(webStream, { headers });
+    headers["Accept-Ranges"] = "bytes";
+    if (Number.isFinite(size))
+      headers["Content-Length"] = String(end - start + 1);
+    if (range) headers["Content-Range"] = `bytes ${start}-${end}/${size}`;
+    return new Response(webStream, { headers, status: range ? 206 : 200 });
   }
 
   async getObjectEntityUploadURL(): Promise<string> {

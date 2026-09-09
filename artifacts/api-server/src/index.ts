@@ -1,4 +1,5 @@
 import app from "./app";
+import { startProcessingWorker } from "./lib/processing";
 import { logger } from "./lib/logger";
 
 const rawPort = process.env["PORT"];
@@ -21,5 +22,6 @@ app.listen(port, (err) => {
     process.exit(1);
   }
 
+  startProcessingWorker();
   logger.info({ port }, "Server listening");
 });

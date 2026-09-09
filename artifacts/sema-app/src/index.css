@@ -104,3 +104,14 @@
 .font-mono { font-family: var(--app-font-mono); }
 .scrub-grid { background-image: linear-gradient(to right, hsl(var(--border) / .5) 1px, transparent 1px); background-size: 12.5% 100%; }
 .video-placeholder { background: radial-gradient(circle at 65% 34%, hsl(28 38% 40% / .34), transparent 20%), linear-gradient(135deg, hsl(215 30% 20%), hsl(215 26% 10%)); }
+
+/* Keep editorial controls usable with touch and reduced motion. */
+button, a[download] { min-height: 44px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

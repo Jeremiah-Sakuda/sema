@@ -1,3 +1,4 @@
+import { db, semaUploadsTable } from "@workspace/db";
 import { Readable } from "stream";
 import {
   RequestUploadUrlBody,
@@ -27,7 +28,7 @@ function hasAuthenticatedSession(
 router.post(
   "/storage/uploads/request-url",
   async (req: Request, res: Response) => {
-    if (!hasAuthenticatedSession(req)) {
+    if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -40,8 +41,20 @@ router.post(
 
     try {
       const { name, size, contentType } = parsed.data;
+      if (
+        !contentType.startsWith("video/") ||
+        size <= 0 ||
+        size > 250 * 1024 * 1024
+      ) {
+        res.status(400).json({ error: "Upload a video up to 250 MB." });
+        return;
+      }
       const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+      const objectPath =
+        objectStorageService.normalizeObjectEntityPath(uploadURL);
+      await db
+        .insert(semaUploadsTable)
+        .values({ objectPath, ownerId: req.user.id });
       res.json(
         RequestUploadUrlResponse.parse({
           uploadURL,
@@ -72,9 +85,7 @@ router.get(
       res.status(response.status);
       response.headers.forEach((value, key) => res.setHeader(key, value));
       if (response.body) {
-        Readable.fromWeb(
-          response.body as ReadableStream<Uint8Array>,
-        ).pipe(res);
+        Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
       } else {
         res.end();
       }
@@ -108,13 +119,15 @@ router.get("/storage/objects/*path", async (req: Request, res: Response) => {
       return;
     }
 
-    const response = await objectStorageService.downloadObject(objectFile);
+    const response = await objectStorageService.downloadObject(
+      objectFile,
+      0,
+      req.headers.range,
+    );
     res.status(response.status);
     response.headers.forEach((value, key) => res.setHeader(key, value));
     if (response.body) {
-      Readable.fromWeb(
-        response.body as ReadableStream<Uint8Array>,
-      ).pipe(res);
+      Readable.fromWeb(response.body as ReadableStream<Uint8Array>).pipe(res);
     } else {
       res.end();
     }

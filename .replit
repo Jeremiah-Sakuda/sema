@@ -2,14 +2,33 @@ modules = ["nodejs-24", "postgresql-16", "python-base-3.13"]
 
 [deployment]
 router = "application"
-deploymentTarget = "autoscale"
+deploymentTarget = "vm"
+build = ["sh", "-c", "PORT=5000 BASE_PATH=/ pnpm run build"]
+run = ["sh", "-c", "NODE_ENV=production PORT=5000 pnpm --filter @workspace/api-server run start"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
+[env]
+PORT = "5000"
+BASE_PATH = "/"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
 [workflows]
 runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5000 BASE_PATH=/ pnpm run build && NODE_ENV=production PORT=5000 pnpm --filter @workspace/api-server run start"
+waitForPort = 5000
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -21,3 +40,4 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+packages = ["ffmpeg"]

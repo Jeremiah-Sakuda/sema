@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import {
   db,
@@ -35,10 +35,20 @@ export async function ensureDemoProject(): Promise<void> {
     .limit(1);
 
   if (existing.length > 0) {
+    // Keep the public fixture consistent with the same identity rule as live analysis.
     await db
       .update(semaVisualBeatsTable)
-      .set({ state: "rejected" })
-      .where(eq(semaVisualBeatsTable.state, "reject"));
+      .set({
+        summary: sql`replace(${semaVisualBeatsTable.summary}, 'Mara', 'the woman in the red coat')`,
+        characters: ["the woman in the red coat"],
+      })
+      .where(eq(semaVisualBeatsTable.projectId, DEMO_PROJECT_ID));
+    await db
+      .update(semaDescriptionCandidatesTable)
+      .set({
+        text: sql`replace(${semaDescriptionCandidatesTable.text}, 'Mara', 'The woman in the red coat')`,
+      })
+      .where(eq(semaDescriptionCandidatesTable.projectId, DEMO_PROJECT_ID));
     return;
   }
 
@@ -120,10 +130,12 @@ export async function ensureDemoProject(): Promise<void> {
         projectId: DEMO_PROJECT_ID,
         start: 43.12,
         end: 45.4,
-        summary: "Mara slips a yellow envelope beneath the apartment door.",
+        summary:
+          "The woman in the red coat slips a yellow envelope beneath the apartment door.",
         importance: "high",
-        reason: "The action is not conveyed by dialogue or a distinct sound cue.",
-        characters: ["Mara"],
+        reason:
+          "The action is not conveyed by dialogue or a distinct sound cue.",
+        characters: ["the woman in the red coat"],
         objects: ["yellow envelope", "apartment door"],
         evidenceFrames: ["envelope-01", "envelope-02", "envelope-03"],
         state: "needs_human",
@@ -133,10 +145,11 @@ export async function ensureDemoProject(): Promise<void> {
         projectId: DEMO_PROJECT_ID,
         start: 77.15,
         end: 80.1,
-        summary: "Mara slides the envelope under the door.",
+        summary:
+          "The woman in the red coat slides the envelope under the door.",
         importance: "high",
         reason: "The visual action changes what the viewer knows.",
-        characters: ["Mara"],
+        characters: ["the woman in the red coat"],
         objects: ["yellow envelope", "apartment door"],
         evidenceFrames: ["fit-01", "fit-02", "fit-03"],
         state: "needs_human",
@@ -146,10 +159,10 @@ export async function ensureDemoProject(): Promise<void> {
         projectId: DEMO_PROJECT_ID,
         start: 108.2,
         end: 115.4,
-        summary: "Mara waits beside the closed door.",
+        summary: "The woman in the red coat waits beside the closed door.",
         importance: "low",
         reason: "The pause contains no visual change that requires narration.",
-        characters: ["Mara"],
+        characters: ["the woman in the red coat"],
         objects: ["apartment door"],
         evidenceFrames: ["quiet-01", "quiet-02", "quiet-03"],
         state: "left_undescribed",
@@ -159,10 +172,12 @@ export async function ensureDemoProject(): Promise<void> {
         projectId: DEMO_PROJECT_ID,
         start: 149.2,
         end: 155.1,
-        summary: "Mara places the photograph into her coat during continuous dialogue.",
+        summary:
+          "The woman in the red coat places the photograph into her coat during continuous dialogue.",
         importance: "high",
-        reason: "The action matters, but every nearby interval is protected speech.",
-        characters: ["Mara"],
+        reason:
+          "The action matters, but every nearby interval is protected speech.",
+        characters: ["the woman in the red coat"],
         objects: ["photograph", "coat"],
         evidenceFrames: ["placement-01", "placement-02", "placement-03"],
         state: "no_safe_placement",
@@ -172,9 +187,11 @@ export async function ensureDemoProject(): Promise<void> {
         projectId: DEMO_PROJECT_ID,
         start: 197.4,
         end: 203.9,
-        summary: "The woman in the red coat turns toward the window; dialogue later establishes her as Mara.",
+        summary:
+          "The woman in the red coat turns toward the window; her name has not yet been established.",
         importance: "medium",
-        reason: "The visual introduction needs a temporary identifier before the name is spoken.",
+        reason:
+          "The visual introduction needs a temporary identifier before the name is spoken.",
         characters: ["the woman in the red coat"],
         objects: ["window", "red coat"],
         evidenceFrames: ["continuity-01", "continuity-02", "continuity-03"],
@@ -188,26 +205,28 @@ export async function ensureDemoProject(): Promise<void> {
         projectId: DEMO_PROJECT_ID,
         beatId: "beat-envelope",
         windowId: "window-envelope",
-        text: "Mara slides a yellow envelope under the door.",
+        text: "The woman in the red coat slides a yellow envelope under the door.",
         ttsDuration: 1.84,
         availableDuration: 2.6,
         fitStatus: "pass",
         languageFlags: [],
         attempt: 2,
-        rationale: "The action is not stated in dialogue and changes what the viewer knows.",
+        rationale:
+          "The action is not stated in dialogue and changes what the viewer knows.",
       },
       {
         candidateId: "candidate-fit",
         projectId: DEMO_PROJECT_ID,
         beatId: "beat-fit",
         windowId: "window-door",
-        text: "Mara quietly slips a yellow envelope beneath the apartment door.",
+        text: "The woman in the red coat quietly slips a yellow envelope beneath the apartment door.",
         ttsDuration: 2.41,
         availableDuration: 2.05,
         fitStatus: "failed",
         languageFlags: ["quietly"],
         attempt: 1,
-        rationale: "The first draft exceeds the available window; Sema needs a shorter revision.",
+        rationale:
+          "The first draft exceeds the available window; Sema needs a shorter revision.",
       },
       {
         candidateId: "candidate-quiet",
@@ -220,7 +239,8 @@ export async function ensureDemoProject(): Promise<void> {
         fitStatus: "pass",
         languageFlags: [],
         attempt: 0,
-        rationale: "A usable gap does not require narration when no meaningful visual information changes.",
+        rationale:
+          "A usable gap does not require narration when no meaningful visual information changes.",
       },
       {
         candidateId: "candidate-no-placement",
@@ -233,7 +253,8 @@ export async function ensureDemoProject(): Promise<void> {
         fitStatus: "pending",
         languageFlags: [],
         attempt: 0,
-        rationale: "No speech-free standard-AD window is close enough to the action.",
+        rationale:
+          "No speech-free standard-AD window is close enough to the action.",
       },
       {
         candidateId: "candidate-name",
@@ -246,13 +267,16 @@ export async function ensureDemoProject(): Promise<void> {
         fitStatus: "pass",
         languageFlags: [],
         attempt: 1,
-        rationale: "The temporary identifier preserves continuity until dialogue establishes Mara's name.",
+        rationale:
+          "The temporary identifier preserves continuity until dialogue establishes her name.",
       },
     ]);
   });
 }
 
-export async function getProjectById(projectId: string): Promise<SemaProject | undefined> {
+export async function getProjectById(
+  projectId: string,
+): Promise<SemaProject | undefined> {
   const [project] = await db
     .select()
     .from(semaProjectsTable)
@@ -262,14 +286,34 @@ export async function getProjectById(projectId: string): Promise<SemaProject | u
 }
 
 export async function getProjectReviewData(projectId: string) {
-  const [project, beats, windows, candidates, decisions, stages] = await Promise.all([
-    getProjectById(projectId),
-    db.select().from(semaVisualBeatsTable).where(eq(semaVisualBeatsTable.projectId, projectId)).orderBy(asc(semaVisualBeatsTable.start)),
-    db.select().from(semaNarrationWindowsTable).where(eq(semaNarrationWindowsTable.projectId, projectId)).orderBy(asc(semaNarrationWindowsTable.start)),
-    db.select().from(semaDescriptionCandidatesTable).where(eq(semaDescriptionCandidatesTable.projectId, projectId)),
-    db.select().from(semaReviewDecisionsTable).where(eq(semaReviewDecisionsTable.projectId, projectId)).orderBy(desc(semaReviewDecisionsTable.updatedAt)),
-    db.select().from(semaProcessStagesTable).where(eq(semaProcessStagesTable.projectId, projectId)).orderBy(asc(semaProcessStagesTable.position)),
-  ]);
+  const [project, beats, windows, candidates, decisions, stages] =
+    await Promise.all([
+      getProjectById(projectId),
+      db
+        .select()
+        .from(semaVisualBeatsTable)
+        .where(eq(semaVisualBeatsTable.projectId, projectId))
+        .orderBy(asc(semaVisualBeatsTable.start)),
+      db
+        .select()
+        .from(semaNarrationWindowsTable)
+        .where(eq(semaNarrationWindowsTable.projectId, projectId))
+        .orderBy(asc(semaNarrationWindowsTable.start)),
+      db
+        .select()
+        .from(semaDescriptionCandidatesTable)
+        .where(eq(semaDescriptionCandidatesTable.projectId, projectId)),
+      db
+        .select()
+        .from(semaReviewDecisionsTable)
+        .where(eq(semaReviewDecisionsTable.projectId, projectId))
+        .orderBy(desc(semaReviewDecisionsTable.updatedAt)),
+      db
+        .select()
+        .from(semaProcessStagesTable)
+        .where(eq(semaProcessStagesTable.projectId, projectId))
+        .orderBy(asc(semaProcessStagesTable.position)),
+    ]);
 
   if (!project) {
     return undefined;
@@ -287,7 +331,11 @@ export async function getProjectReviewData(projectId: string) {
     process: {
       status: failedStage ? "failed" : activeStage ? "active" : "complete",
       currentStage: failedStage?.name ?? activeStage?.name ?? "review",
-      stages: stages.map(({ name, label, status }) => ({ name, label, status })),
+      stages: stages.map(({ name, label, status }) => ({
+        name,
+        label,
+        status,
+      })),
     },
   };
 }
@@ -301,7 +349,9 @@ export function serializeProject(project: SemaProject) {
   };
 }
 
-export function serializeDecision(decision: typeof semaReviewDecisionsTable.$inferSelect) {
+export function serializeDecision(
+  decision: typeof semaReviewDecisionsTable.$inferSelect,
+) {
   return {
     ...decision,
     updatedAt: decision.updatedAt.toISOString(),

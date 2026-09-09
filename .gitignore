@@ -47,3 +47,17 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Credentials and private media
+.env
+.env.*
+*service-account*.json
+*credentials*.json
+*.pem
+*.key
+*.wav
+*.mp4
+*.mov
+exports/
+
+.pnpm-store/
