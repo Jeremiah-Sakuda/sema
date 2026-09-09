@@ -61,6 +61,7 @@ function BeatRow({
 }) {
   return (
     <button
+      aria-pressed={active}
       onClick={onClick}
       className={`focus-ring grid w-full grid-cols-[62px_1fr_10px] gap-3 border-b border-border px-4 py-3 text-left transition-colors ${active ? "bg-primary/10" : "hover:bg-muted/60"}`}
       data-testid={`button-beat-${beat.beatId}`}
@@ -120,12 +121,44 @@ function EvidenceFrame({ src, index }: { src: string; index: number }) {
 function EvidencePlayer({
   project,
   beat,
+  candidate,
+  windowStart,
 }: {
   project: Project;
   beat?: VisualBeat;
+  candidate?: DescriptionCandidate;
+  windowStart?: number;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [withNarration, setWithNarration] = useState(false);
+  const sync = () => {
+    const video = videoRef.current,
+      audio = audioRef.current;
+    if (!video || !audio || windowStart === undefined) return;
+    const offset = video.currentTime - windowStart;
+    if (
+      !withNarration ||
+      video.paused ||
+      offset < 0 ||
+      offset >= (candidate?.ttsDuration ?? 0)
+    ) {
+      audio.pause();
+      return;
+    }
+    if (Math.abs(audio.currentTime - offset) > 0.2) audio.currentTime = offset;
+    audio.playbackRate = video.playbackRate;
+    if (audio.paused)
+      void audio.play().catch(() => {
+        setError(true);
+        setWithNarration(false);
+      });
+  };
+  useEffect(() => {
+    audioRef.current?.pause();
+    setWithNarration(false);
+  }, [candidate?.candidateId, candidate?.attempt, beat?.beatId]);
   useEffect(() => {
     if (videoRef.current && beat) {
       videoRef.current.pause();
@@ -146,6 +179,12 @@ function EvidencePlayer({
             if (videoRef.current && beat)
               videoRef.current.currentTime = beat.start;
           }}
+          onPlay={sync}
+          onPause={() => audioRef.current?.pause()}
+          onSeeking={sync}
+          onTimeUpdate={sync}
+          onRateChange={sync}
+          onEnded={() => audioRef.current?.pause()}
           onError={() => setError(true)}
           data-testid="video-source-media"
         />
@@ -166,9 +205,57 @@ function EvidencePlayer({
           </div>
         </div>
       )}
+      {candidate &&
+        candidate.ttsDuration > 0 &&
+        windowStart !== undefined &&
+        project.mediaObjectPath && (
+          <div className="px-5 py-3 border-t border-border">
+            <audio
+              ref={audioRef}
+              preload="auto"
+              src={`/api/projects/${project.projectId}/candidates/${candidate.candidateId}/audio?revision=${candidate.attempt}`}
+              onError={() => setError(true)}
+            />
+            <button
+              className="focus-ring border border-primary px-3 py-2 text-xs font-semibold text-primary"
+              aria-pressed={withNarration}
+              onClick={() => {
+                const video = videoRef.current,
+                  audio = audioRef.current;
+                if (!video || !audio) return;
+                if (withNarration) {
+                  setWithNarration(false);
+                  audio.pause();
+                  video.pause();
+                  return;
+                }
+                document
+                  .querySelectorAll("audio")
+                  .forEach((item) => item.pause());
+                video.currentTime = windowStart;
+                audio.currentTime = 0;
+                setWithNarration(true);
+                void Promise.all([video.play(), audio.play()]).catch(() => {
+                  video.pause();
+                  audio.pause();
+                  setWithNarration(false);
+                  setError(true);
+                });
+              }}
+            >
+              {withNarration
+                ? "Stop synchronized audition"
+                : "Play film with narration"}
+            </button>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Narration follows the film’s pause and seek controls at{" "}
+              {timecode(windowStart)}.
+            </p>
+          </div>
+        )}
       {error && (
         <p role="alert" className="p-3 text-sm text-destructive">
-          Source playback failed. Check your session and reload the project.
+          Playback failed. Check your session, then retry or reload the project.
         </p>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-secondary/30 px-5 py-3">
@@ -201,7 +288,13 @@ function NarrationPreview({
       <audio
         controls
         preload="none"
-        src={`/api/projects/${projectId}/candidates/${candidate.candidateId}/audio`}
+        src={`/api/projects/${projectId}/candidates/${candidate.candidateId}/audio?revision=${candidate.attempt}`}
+        onPlay={(event) => {
+          document.querySelectorAll("video, audio").forEach((item) => {
+            if (item !== event.currentTarget)
+              (item as HTMLMediaElement).pause();
+          });
+        }}
         aria-label="Candidate narration preview"
         className="w-full"
         onError={() => setFailed(true)}
@@ -267,6 +360,7 @@ function CandidateCard({
 }) {
   return (
     <button
+      aria-pressed={selected}
       onClick={onSelect}
       className={`focus-ring w-full border p-4 text-left transition-all ${selected ? "border-primary bg-primary/5 shadow-[4px_4px_0_hsl(var(--primary)/.14)]" : "border-border bg-card hover:border-primary/50"}`}
       data-testid={`button-candidate-${candidate.candidateId}`}
@@ -590,6 +684,8 @@ export function Review() {
   const [editedText, setEditedText] = useState<string | null>(null);
   const [showStages, setShowStages] = useState(false);
   const [notice, setNotice] = useState("");
+  const [noticeError, setNoticeError] = useState(false);
+  const [rendering, setRendering] = useState(false);
   const [exportReady, setExportReady] = useState(false);
   const beat = useMemo(
     () =>
@@ -619,6 +715,49 @@ export function Review() {
     setEditedText(null);
     setNotice("");
   };
+  const renderEdit = async () => {
+    if (!beat || !selectedCandidate || !editedText?.trim() || isDemo) return;
+    setRendering(true);
+    setNoticeError(false);
+    setNotice("Rendering and measuring your edit…");
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/beats/${beat.beatId}/render`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidateId: selectedCandidate.candidateId,
+            text: editedText.trim(),
+          }),
+        },
+      );
+      if (!response.ok)
+        throw new Error(
+          "The edit could not be rendered. Try shorter wording or retry.",
+        );
+      const candidate: DescriptionCandidate = await response.json();
+      await queryClient.invalidateQueries({
+        queryKey: getGetProjectReviewQueryKey(projectId),
+      });
+      setEditedText(null);
+      setExportReady(false);
+      setNoticeError(candidate.fitStatus !== "pass");
+      setNotice(
+        candidate.fitStatus === "pass"
+          ? "Edit rendered. Listen to the narration, then approve when ready."
+          : "Edit rendered but does not fit. Listen, shorten the wording, and render again.",
+      );
+    } catch (error) {
+      setNoticeError(true);
+      setNotice(
+        error instanceof Error ? error.message : "Rendering failed. Retry.",
+      );
+    } finally {
+      setRendering(false);
+    }
+  };
   const decide = (action: DecisionInputAction) => {
     if (!beat || isDemo) return;
     updateDecision.mutate(
@@ -634,6 +773,7 @@ export function Review() {
       },
       {
         onSuccess: () => {
+          setNoticeError(false);
           setExportReady(false);
           setEditedText(null);
           setNotice(
@@ -649,6 +789,7 @@ export function Review() {
           });
         },
         onError: () => {
+          setNoticeError(true);
           setNotice(
             "Approval could not complete. The narration must render successfully and fit outside protected dialogue. Review the wording and retry.",
           );
@@ -664,10 +805,12 @@ export function Review() {
           queryClient.invalidateQueries({
             queryKey: getGetProjectReviewQueryKey(projectId),
           }),
-        onError: () =>
+        onError: () => {
+          setNoticeError(true);
           setNotice(
             "Processing could not restart. Check the provider setup and try again.",
-          ),
+          );
+        },
       },
     );
   const exportBundle = () =>
@@ -675,6 +818,7 @@ export function Review() {
       { projectId },
       {
         onSuccess: (bundle) => {
+          setNoticeError(false);
           setExportReady(true);
           setNotice(
             `${bundle.approvedCount} approved descriptions packaged. Your timed narration WAV and review records are ready.`,
@@ -686,10 +830,12 @@ export function Review() {
             queryKey: getGetProjectQueryKey(projectId),
           });
         },
-        onError: () =>
+        onError: () => {
+          setNoticeError(true);
           setNotice(
             "Export could not be verified. Review the approved narration and try again.",
-          ),
+          );
+        },
       },
     );
   if (isLoading)
@@ -840,8 +986,22 @@ export function Review() {
         </div>
       )}
       <main className="mx-auto max-w-[1500px] p-4 lg:p-6">
+        {!isDemo && (
+          <MediaAssetCard
+            project={workspace.project}
+            projectId={projectId}
+            onAttached={() => {
+              queryClient.invalidateQueries({
+                queryKey: getGetProjectReviewQueryKey(projectId),
+              });
+              queryClient.invalidateQueries({
+                queryKey: getGetProjectQueryKey(projectId),
+              });
+            }}
+          />
+        )}
         <div className="grid gap-5 lg:grid-cols-[210px_minmax(0,1fr)_300px] xl:grid-cols-[265px_minmax(0,1fr)_380px]">
-          <aside className="border border-border bg-card lg:max-h-[calc(100dvh-130px)] lg:overflow-y-auto">
+          <aside className="border border-border bg-card max-h-64 overflow-y-auto lg:max-h-[calc(100dvh-130px)]">
             <div className="border-b border-border p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -874,7 +1034,20 @@ export function Review() {
             </div>
           </aside>
           <section className="min-w-0 border border-border bg-card">
-            <EvidencePlayer project={workspace.project} beat={beat} />
+            <EvidencePlayer
+              project={workspace.project}
+              beat={beat}
+              candidate={
+                !isDemo && selectedCandidate?.fitStatus !== "pending"
+                  ? selectedCandidate
+                  : undefined
+              }
+              windowStart={
+                workspace.windows.find(
+                  (window) => window.windowId === selectedCandidate?.windowId,
+                )?.start
+              }
+            />
             <div className="p-5 lg:p-7">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
@@ -993,18 +1166,20 @@ export function Review() {
                 </div>
               )}
             </div>
-            {!isDemo && selectedCandidate?.fitStatus === "pass" && (
-              <NarrationPreview
-                key={`${selectedCandidate.candidateId}-${selectedCandidate.attempt}`}
-                projectId={projectId}
-                candidate={selectedCandidate}
-              />
-            )}
+            {!isDemo &&
+              selectedCandidate &&
+              selectedCandidate.fitStatus !== "pending" && (
+                <NarrationPreview
+                  key={`${selectedCandidate.candidateId}-${selectedCandidate.attempt}`}
+                  projectId={projectId}
+                  candidate={selectedCandidate}
+                />
+              )}
             <div className="border-t border-border p-5">
               <label className="block text-[10px] font-semibold uppercase tracking-[.15em] text-muted-foreground">
                 Final wording{" "}
                 <textarea
-                  readOnly={isDemo}
+                  readOnly={isDemo || rendering}
                   value={editedText ?? selectedCandidate?.text ?? ""}
                   onChange={(event) => setEditedText(event.target.value)}
                   rows={4}
@@ -1024,11 +1199,15 @@ export function Review() {
               </label>
               {notice && (
                 <p
-                  className="mt-4 flex items-center gap-2 bg-primary/10 p-2.5 text-xs text-primary"
-                  role="status"
+                  className={`mt-4 flex items-center gap-2 p-2.5 text-xs ${noticeError ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}
+                  role={noticeError ? "alert" : "status"}
                   data-testid="status-decision-notice"
                 >
-                  <ShieldCheck className="h-4 w-4" />
+                  {noticeError ? (
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
+                  )}
                   {notice}
                 </p>
               )}
@@ -1037,6 +1216,7 @@ export function Review() {
                   onClick={() => decide("approve")}
                   disabled={
                     isDemo ||
+                    rendering ||
                     updateDecision.isPending ||
                     !selectedCandidate ||
                     selectedCandidate.fitStatus !== "pass" ||
@@ -1054,9 +1234,10 @@ export function Review() {
                   Approve for export
                 </button>
                 <button
-                  onClick={() => decide("human_edited_approve")}
+                  onClick={() => void renderEdit()}
                   disabled={
                     isDemo ||
+                    rendering ||
                     updateDecision.isPending ||
                     !editedText?.trim() ||
                     !selectedCandidate
@@ -1064,7 +1245,8 @@ export function Review() {
                   className="focus-ring flex items-center justify-center gap-2 border border-primary px-3 py-2.5 text-xs font-semibold text-primary disabled:opacity-40"
                   data-testid="button-approve-edited"
                 >
-                  <Send className="h-3.5 w-3.5" /> Render & approve edit
+                  <Send className="h-3.5 w-3.5" />{" "}
+                  {rendering ? "Rendering…" : "Render edit"}
                 </button>
                 <button
                   onClick={() => decide("reject")}
@@ -1110,20 +1292,6 @@ export function Review() {
             </div>
           </aside>
         </div>
-        {!isDemo && (
-          <MediaAssetCard
-            project={workspace.project}
-            projectId={projectId}
-            onAttached={() => {
-              queryClient.invalidateQueries({
-                queryKey: getGetProjectReviewQueryKey(projectId),
-              });
-              queryClient.invalidateQueries({
-                queryKey: getGetProjectQueryKey(projectId),
-              });
-            }}
-          />
-        )}
         {!isDemo && (
           <ProcessingEvidence
             projectId={projectId}

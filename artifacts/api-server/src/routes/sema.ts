@@ -96,12 +96,10 @@ function locked(handler: RequestHandler): RequestHandler {
       });
     } catch {
       if (!res.headersSent)
-        res
-          .status(409)
-          .json({
-            error:
-              "Project is busy or unavailable. Try again after processing completes.",
-          });
+        res.status(409).json({
+          error:
+            "Project is busy or unavailable. Try again after processing completes.",
+        });
     }
   };
 }
@@ -315,11 +313,9 @@ router.post(
     }
 
     if (project.mediaObjectPath) {
-      res
-        .status(409)
-        .json({
-          error: "Create a new project to use a different source video.",
-        });
+      res.status(409).json({
+        error: "Create a new project to use a different source video.",
+      });
       return;
     }
     const [upload] = await db
@@ -333,24 +329,20 @@ router.post(
       )
       .limit(1);
     if (!upload) {
-      res
-        .status(403)
-        .json({
-          error: "This upload does not belong to you. Upload the source again.",
-        });
+      res.status(403).json({
+        error: "This upload does not belong to you. Upload the source again.",
+      });
       return;
     }
     try {
       googleConfiguration();
     } catch (error) {
-      res
-        .status(503)
-        .json({
-          error:
-            error instanceof Error
-              ? error.message
-              : "Configure Google Cloud in Replit Secrets.",
-        });
+      res.status(503).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Configure Google Cloud in Replit Secrets.",
+      });
       return;
     }
     let sourcePath: string;
@@ -360,11 +352,9 @@ router.post(
         req.user.id,
       );
     } catch {
-      res
-        .status(400)
-        .json({
-          error: "The uploaded video is missing, empty, or larger than 250 MB.",
-        });
+      res.status(400).json({
+        error: "The uploaded video is missing, empty, or larger than 250 MB.",
+      });
       return;
     }
 
@@ -385,6 +375,172 @@ router.post(
     res.json(
       AttachProjectMediaResponse.parse(serializeProject(updatedProject)),
     );
+  }),
+);
+
+router.post(
+  "/projects/:projectId/beats/:beatId/render",
+  locked(async (req, res): Promise<void> => {
+    if (!req.isAuthenticated()) {
+      res.status(401).json({ error: "Authentication required." });
+      return;
+    }
+    const projectId = String(req.params.projectId);
+    const beatId = String(req.params.beatId);
+    const candidateId = req.body?.candidateId;
+    const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
+    if (
+      typeof candidateId !== "string" ||
+      !candidateId ||
+      !text ||
+      Buffer.byteLength(text, "utf8") > 4500
+    ) {
+      res
+        .status(400)
+        .json({
+          error:
+            "A candidate and narration between 1 and 4500 UTF-8 bytes are required.",
+        });
+      return;
+    }
+    const project = await getProjectById(projectId);
+    if (!project || project.ownerId !== req.user.id) {
+      res.status(403).json({ error: "You do not own this project." });
+      return;
+    }
+    if (!["needs_review", "exported"].includes(project.status)) {
+      res
+        .status(409)
+        .json({ error: "Finish processing before rendering edits." });
+      return;
+    }
+    const [candidate] = await db
+      .select()
+      .from(semaDescriptionCandidatesTable)
+      .where(
+        and(
+          eq(semaDescriptionCandidatesTable.candidateId, candidateId),
+          eq(semaDescriptionCandidatesTable.beatId, beatId),
+          eq(semaDescriptionCandidatesTable.projectId, projectId),
+        ),
+      )
+      .limit(1);
+    const [beat] = await db
+      .select()
+      .from(semaVisualBeatsTable)
+      .where(eq(semaVisualBeatsTable.beatId, beatId))
+      .limit(1);
+    const [window] = candidate
+      ? await db
+          .select()
+          .from(semaNarrationWindowsTable)
+          .where(eq(semaNarrationWindowsTable.windowId, candidate.windowId))
+          .limit(1)
+      : [];
+    if (
+      !candidate ||
+      candidate.candidateId !== candidateId ||
+      candidate.beatId !== beatId ||
+      candidate.projectId !== projectId ||
+      !beat ||
+      beat.projectId !== projectId ||
+      !window ||
+      window.projectId !== projectId
+    ) {
+      res.status(404).json({ error: "Narration candidate not found." });
+      return;
+    }
+    const [processing] = await db
+      .select()
+      .from(semaProcessingTable)
+      .where(eq(semaProcessingTable.projectId, projectId));
+    if (!processing || processing.manifest.source !== project.mediaObjectPath) {
+      res
+        .status(409)
+        .json({ error: "Process the current source before rendering edits." });
+      return;
+    }
+    let objectPath: string | undefined;
+    try {
+      const audio = await new GoogleCloudProvider().synthesize(text);
+      const measured = parseWave(audio).duration;
+      const fit = verifyRenderedFit({
+        window,
+        renderedDuration: measured,
+        protectedCollision:
+          window.protectedCollision ||
+          hasProtectedCollision(window, processing.manifest.protectedIntervals),
+      });
+      objectPath = await objectStorageService.savePrivateArtifact(
+        audio,
+        "audio/wav",
+        req.user.id,
+      );
+      const manifest = {
+        ...processing.manifest,
+        renders: {
+          ...processing.manifest.renders,
+          [candidateId]: { objectPath, text, sha256: audioHash(audio) },
+        },
+      };
+      const updated = {
+        ...candidate,
+        text,
+        ttsDuration: measured,
+        fitStatus: fit.status === "pass" ? "pass" : "failed",
+        attempt: candidate.attempt + 1,
+      };
+      await db.transaction(async (tx) => {
+        await tx
+          .update(semaProcessingTable)
+          .set({ manifest })
+          .where(eq(semaProcessingTable.projectId, projectId));
+        await tx
+          .update(semaDescriptionCandidatesTable)
+          .set({
+            text,
+            ttsDuration: measured,
+            fitStatus: updated.fitStatus,
+            attempt: updated.attempt,
+          })
+          .where(eq(semaDescriptionCandidatesTable.candidateId, candidateId));
+        await tx
+          .update(semaReviewDecisionsTable)
+          .set({ exportAuthorized: false })
+          .where(
+            and(
+              eq(semaReviewDecisionsTable.projectId, projectId),
+              eq(semaReviewDecisionsTable.beatId, beatId),
+            ),
+          );
+        await tx
+          .update(semaVisualBeatsTable)
+          .set({ state: "needs_human" })
+          .where(eq(semaVisualBeatsTable.beatId, beatId));
+        await tx
+          .update(semaProjectsTable)
+          .set({ status: "needs_review", updatedAt: new Date() })
+          .where(eq(semaProjectsTable.projectId, projectId));
+      });
+      objectPath = undefined;
+      res.json(updated);
+    } catch {
+      if (objectPath) {
+        try {
+          await (
+            await objectStorageService.getObjectEntityFile(objectPath)
+          ).delete();
+        } catch {
+          /* Cleanup must not expose storage details. */
+        }
+      }
+      res
+        .status(503)
+        .json({
+          error:
+            "Narration could not be rendered. Check provider configuration and storage, then retry.",
+        });
+    }
   }),
 );
 
@@ -472,60 +628,25 @@ router.patch(
         window.protectedCollision ||
         hasProtectedCollision(window, processing.manifest.protectedIntervals)
       ) {
-        res
-          .status(409)
-          .json({
-            error: "Approval requires rendered narration in a safe window.",
-          });
+        res.status(409).json({
+          error: "Approval requires rendered narration in a safe window.",
+        });
         return;
       }
       try {
-        let render = processing.manifest.renders[candidate.candidateId];
-        if (!render || render.text !== finalText) {
-          const audio = await new GoogleCloudProvider().synthesize(finalText);
-          const measured = parseWave(audio).duration;
-          const fit = verifyRenderedFit({ window, renderedDuration: measured });
-          if (fit.status !== "pass") {
-            res.status(409).json({ error: fit.reason });
-            return;
-          }
-          const objectPath = await objectStorageService.savePrivateArtifact(
-            audio,
-            "audio/wav",
-            req.user.id,
-          );
-          render = { objectPath, text: finalText, sha256: audioHash(audio) };
-          processing.manifest.renders[candidate.candidateId] = render;
-          await db.transaction(async (tx) => {
-            await tx
-              .update(semaProcessingTable)
-              .set({ manifest: processing.manifest })
-              .where(eq(semaProcessingTable.projectId, params.data.projectId));
-            await tx
-              .update(semaDescriptionCandidatesTable)
-              .set({
-                text: finalText,
-                ttsDuration: measured,
-                fitStatus: "pass",
-                attempt: candidate.attempt + 1,
-              })
-              .where(
-                eq(
-                  semaDescriptionCandidatesTable.candidateId,
-                  candidate.candidateId,
-                ),
-              );
-            await tx
-              .update(semaReviewDecisionsTable)
-              .set({ exportAuthorized: false })
-              .where(eq(semaReviewDecisionsTable.beatId, beat.beatId));
-          });
-          candidate = {
-            ...candidate,
-            text: finalText,
-            ttsDuration: measured,
-            fitStatus: "pass",
-          };
+        const render = processing.manifest.renders[candidate.candidateId];
+        if (
+          !render ||
+          render.text !== finalText ||
+          candidate.text !== finalText
+        ) {
+          res
+            .status(409)
+            .json({
+              error:
+                "Render and audition the exact edited wording before approving.",
+            });
+          return;
         }
         const [audio] = await (
           await objectStorageService.getObjectEntityFile(render.objectPath)
@@ -534,12 +655,10 @@ router.patch(
           throw new Error("Stored audio changed.");
         candidate.ttsDuration = parseWave(audio).duration;
       } catch {
-        res
-          .status(503)
-          .json({
-            error:
-              "Narration could not be rendered or verified. Check provider configuration and storage, then retry.",
-          });
+        res.status(503).json({
+          error:
+            "Narration could not be verified. Check storage and render the wording again.",
+        });
         return;
       }
     }
@@ -628,22 +747,20 @@ router.patch(
       .update(semaProjectsTable)
       .set({ status: "needs_review", updatedAt: new Date() })
       .where(eq(semaProjectsTable.projectId, params.data.projectId));
-    await db
-      .insert(semaExecutionEventsTable)
-      .values({
-        eventId: createDecisionId(),
-        projectId: params.data.projectId,
-        runId: "human-review",
-        stage: "review",
-        event: "human_decision",
-        details: {
-          candidateId: candidate.candidateId,
-          action: decision.action,
-          reviewerId: req.user.id,
-          exportAuthorized,
-          measuredSeconds: candidate.ttsDuration,
-        },
-      });
+    await db.insert(semaExecutionEventsTable).values({
+      eventId: createDecisionId(),
+      projectId: params.data.projectId,
+      runId: "human-review",
+      stage: "review",
+      event: "human_decision",
+      details: {
+        candidateId: candidate.candidateId,
+        action: decision.action,
+        reviewerId: req.user.id,
+        exportAuthorized,
+        measuredSeconds: candidate.ttsDuration,
+      },
+    });
     res.json(UpdateBeatDecisionResponse.parse(serializeDecision(decision)));
   }),
 );
@@ -676,12 +793,10 @@ router.post(
     try {
       googleConfiguration();
     } catch (error) {
-      res
-        .status(503)
-        .json({
-          error:
-            error instanceof Error ? error.message : "Configure Google Cloud.",
-        });
+      res.status(503).json({
+        error:
+          error instanceof Error ? error.message : "Configure Google Cloud.",
+      });
       return;
     }
     await db
@@ -726,14 +841,12 @@ router.get(
     try {
       bundle = await verifiedExport(project.projectId);
     } catch (error) {
-      res
-        .status(409)
-        .json({
-          error:
-            error instanceof ExportValidationError
-              ? error.message
-              : "Stored narration could not be verified. Check storage access and retry.",
-        });
+      res.status(409).json({
+        error:
+          error instanceof ExportValidationError
+            ? error.message
+            : "Stored narration could not be verified. Check storage access and retry.",
+      });
       return;
     }
     const { entries } = bundle;
@@ -824,14 +937,12 @@ router.post(
     try {
       bundle = await verifiedExport(project.projectId);
     } catch (error) {
-      res
-        .status(409)
-        .json({
-          error:
-            error instanceof ExportValidationError
-              ? error.message
-              : "Stored narration could not be verified. Check storage access and retry.",
-        });
+      res.status(409).json({
+        error:
+          error instanceof ExportValidationError
+            ? error.message
+            : "Stored narration could not be verified. Check storage access and retry.",
+      });
       return;
     }
     const { decisions } = bundle;
