@@ -91,9 +91,17 @@ function NewProjectDialog({ onClose }: { onClose: () => void }) {
     title: "",
     describerName: "",
   });
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof ProjectInput, string>>
+  >({});
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!form.title.trim() || !form.describerName.trim()) return;
+    const nextErrors: Partial<Record<keyof ProjectInput, string>> = {};
+    if (!form.title.trim()) nextErrors.title = "Enter a project title.";
+    if (!form.describerName.trim())
+      nextErrors.describerName = "Enter the describer's name.";
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
     createProject.mutate(
       {
         data: {
@@ -122,6 +130,7 @@ function NewProjectDialog({ onClose }: { onClose: () => void }) {
       <DialogContent className="max-w-md p-0" data-testid="dialog-new-project">
         <form
           onSubmit={submit}
+          noValidate
           className="w-full max-w-md border border-border bg-card p-6 shadow-[12px_12px_0_hsl(var(--primary)/.13)]"
         >
           <div className="mb-6 flex items-start justify-between">
@@ -141,26 +150,61 @@ function NewProjectDialog({ onClose }: { onClose: () => void }) {
             Project title
             <input
               autoFocus
+              required
               value={form.title}
-              onChange={(event) =>
-                setForm({ ...form, title: event.target.value })
-              }
+              onChange={(event) => {
+                setForm({ ...form, title: event.target.value });
+                if (errors.title)
+                  setErrors((current) => ({ ...current, title: undefined }));
+              }}
+              aria-invalid={Boolean(errors.title)}
+              aria-describedby={errors.title ? "project-title-error" : undefined}
               className="focus-ring mt-2 w-full border border-input bg-background px-3 py-2.5 text-sm"
               placeholder="e.g. The Quiet Season"
               data-testid="input-project-title"
             />
+            {errors.title && (
+              <span
+                id="project-title-error"
+                role="alert"
+                className="mt-2 block text-xs text-destructive"
+                data-testid="error-project-title"
+              >
+                {errors.title}
+              </span>
+            )}
           </label>
           <label className="mb-6 block text-sm font-medium">
             Describer
             <input
+              required
               value={form.describerName}
-              onChange={(event) =>
-                setForm({ ...form, describerName: event.target.value })
+              onChange={(event) => {
+                setForm({ ...form, describerName: event.target.value });
+                if (errors.describerName)
+                  setErrors((current) => ({
+                    ...current,
+                    describerName: undefined,
+                  }));
+              }}
+              aria-invalid={Boolean(errors.describerName)}
+              aria-describedby={
+                errors.describerName ? "describer-name-error" : undefined
               }
               className="focus-ring mt-2 w-full border border-input bg-background px-3 py-2.5 text-sm"
               placeholder="Your name"
               data-testid="input-describer-name"
             />
+            {errors.describerName && (
+              <span
+                id="describer-name-error"
+                role="alert"
+                className="mt-2 block text-xs text-destructive"
+                data-testid="error-describer-name"
+              >
+                {errors.describerName}
+              </span>
+            )}
           </label>
           {createProject.isError && (
             <p

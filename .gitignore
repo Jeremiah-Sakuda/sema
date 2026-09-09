@@ -61,6 +61,3 @@ Thumbs.db
 exports/
 
 .pnpm-store/
-
-# Legacy preview generator output
-artifacts/mockup-sandbox/src/.generated/

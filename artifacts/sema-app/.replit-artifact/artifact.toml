@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Sema Audio Description Editor"
+description = "A video-first editorial workspace for preparing accessible audio description: inspect visual evidence, protect speech, verify rendered narration fit, and authorize exports."
+version = "1.0.0"
+id = "artifacts/sema-app"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24710
+
+[services.development]
+run = "pnpm --filter @workspace/sema-app run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/sema-app", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/sema-app/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24710"
+BASE_PATH = "/"

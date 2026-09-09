@@ -319,8 +319,11 @@ export async function getProjectReviewData(projectId: string) {
     return undefined;
   }
 
-  const activeStage = stages.find((stage) => stage.status === "active");
-  const failedStage = stages.find((stage) => stage.status === "failed");
+  const visibleStages = project.mediaObjectPath
+    ? stages
+    : stages.map((stage) => ({ ...stage, status: "pending" }));
+  const activeStage = visibleStages.find((stage) => stage.status === "active");
+  const failedStage = visibleStages.find((stage) => stage.status === "failed");
 
   return {
     project: serializeProject(project),
@@ -330,8 +333,9 @@ export async function getProjectReviewData(projectId: string) {
     decisions: decisions.map(serializeDecision),
     process: {
       status: failedStage ? "failed" : activeStage ? "active" : "complete",
-      currentStage: failedStage?.name ?? activeStage?.name ?? "review",
-      stages: stages.map(({ name, label, status }) => ({
+      currentStage:
+        failedStage?.name ?? activeStage?.name ?? visibleStages[0]?.name ?? "review",
+      stages: visibleStages.map(({ name, label, status }) => ({
         name,
         label,
         status,
@@ -343,6 +347,10 @@ export async function getProjectReviewData(projectId: string) {
 export function serializeProject(project: SemaProject) {
   return {
     ...project,
+    status:
+      !project.mediaObjectPath && project.status === "processing"
+        ? "ready"
+        : project.status,
     duration: Number(project.duration),
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),

@@ -301,56 +301,11 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-  /projects/{projectId}/beats/{beatId}/render:
-    post:
-      operationId: renderEditedNarration
-      tags: [projects]
-      summary: Render edited narration for audition without approving it
-      description: Stores the measured recording and revokes prior export authorization. Failed fits remain available for audition but cannot be approved.
-      parameters:
-        - $ref: "#/components/parameters/ProjectId"
-        - $ref: "#/components/parameters/BeatId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [candidateId, text]
-              properties:
-                candidateId:
-                  type: string
-                  minLength: 1
-                text:
-                  type: string
-                  minLength: 1
-                  maxLength: 4500
-                  description: Narration text, limited to 4500 UTF-8 bytes by the server.
-      responses:
-        "200":
-          description: Updated candidate with measured audio. This is not an approval.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/DescriptionCandidate"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "503":
-          description: Narration synthesis or storage unavailable.
   /projects/{projectId}/beats/{beatId}/decision:
     patch:
       operationId: updateBeatDecision
       tags: [projects]
       summary: Record a human review decision
-      description: Approval requires wording that exactly matches an existing measured recording. Edited text must be rendered separately before approval.
       parameters:
         - $ref: "#/components/parameters/ProjectId"
         - $ref: "#/components/parameters/BeatId"
@@ -436,6 +391,12 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "501":
+          description: Live TTS rendering is not available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 components:
   parameters:
     ProjectId:

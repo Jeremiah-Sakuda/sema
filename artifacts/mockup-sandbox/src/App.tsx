@@ -1,11 +1,6 @@
 import { useEffect, useState, type ComponentType } from "react";
 
-// Vite discovers previews directly, so typechecking never depends on a prior build.
-const discoveredModules = import.meta.glob<Record<string, unknown>>([
-  "./components/mockups/**/*.tsx",
-  "!./components/mockups/**/_*/**",
-  "!./components/mockups/**/_*.tsx",
-]);
+import { modules as discoveredModules } from "./.generated/mockup-components";
 
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 
